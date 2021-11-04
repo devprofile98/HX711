@@ -5,6 +5,7 @@ This file holds HX711 class
 
 import statistics as stat
 import time
+import threading
 
 import RPi.GPIO as GPIO
 
@@ -56,6 +57,7 @@ class HX711:
         self._scale_ratio_B = 1  # scale ratio for channel B
         self._debug_mode = False
         self._data_filter = self.outliers_filter  # default it is used outliers_filter
+        self._sem = threading.Semaphore(1)
 
         GPIO.setup(self._pd_sck, GPIO.OUT)  # pin _pd_sck is output only
         GPIO.setup(self._dout, GPIO.IN)  # pin _dout is input only
@@ -435,26 +437,27 @@ class HX711:
             if it returns int then reading is valid
         """
         # do backup of current channel befor reading for later use
-        backup_channel = self._current_channel
-        backup_gain = self._gain_channel_A
-        data_list = []
-        # do required number of readings
-        for _ in range(readings):
-            data_list.append(self._read())
-        data_mean = False
-        if readings > 2 and self._data_filter:
-            filtered_data = self._data_filter(data_list)
-            if not filtered_data:
-                return False
-            if self._debug_mode:
-                print('data_list: {}'.format(data_list))
-                print('filtered_data list: {}'.format(filtered_data))
-                print('data_mean:', stat.mean(filtered_data))
-            data_mean = stat.mean(filtered_data)
-        else:
-            data_mean = stat.mean(data_list)
-        self._save_last_raw_data(backup_channel, backup_gain, data_mean)
-        return int(data_mean)
+        with self._sem:
+            backup_channel = self._current_channel
+            backup_gain = self._gain_channel_A
+            data_list = []
+            # do required number of readings
+            for _ in range(readings):
+                data_list.append(self._read())
+            data_mean = False
+            if readings > 2 and self._data_filter:
+                filtered_data = self._data_filter(data_list)
+                if not filtered_data:
+                    return False
+                if self._debug_mode:
+                    print('data_list: {}'.format(data_list))
+                    print('filtered_data list: {}'.format(filtered_data))
+                    print('data_mean:', stat.mean(filtered_data))
+                data_mean = stat.mean(filtered_data)
+            else:
+                data_mean = stat.mean(data_list)
+            self._save_last_raw_data(backup_channel, backup_gain, data_mean)
+            return int(data_mean)
 
     def get_data_mean(self, readings=30):
         """
